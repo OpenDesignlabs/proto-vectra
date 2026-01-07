@@ -668,3 +668,9 @@ export const generateCode = (node: ComponentData, indent = 0): string => {
   const childrenCode = node.children.map(c => generateCode(c, indent + 1)).join('');
   return `${startComment}\n${space}<div ${tagProps}>\n${childrenCode}\n${space}</div>`;
 };
+
+export const isSafeUrl = (url: string): boolean => {
+  if (!url) return false;
+  const lower = url.trim().toLowerCase();
+  return !lower.startsWith('javascript:') && !lower.startsWith('vbscript:') && !lower.startsWith('data:');
+};
