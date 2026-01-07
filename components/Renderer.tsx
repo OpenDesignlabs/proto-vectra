@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ComponentData, ComponentType, CMSCollection, CMSItem, DataBinding } from '../types';
-import { getTailwindClasses } from '../utils';
+import { getTailwindClasses, isSafeUrl } from '../utils';
 
 interface RendererProps {
   data: ComponentData;
@@ -162,7 +162,11 @@ export const Renderer: React.FC<RendererProps> = ({
       if (data.interactions?.type === 'alert') {
         alert(data.interactions.value);
       } else if (data.interactions?.type === 'link') {
-        window.open(data.interactions.value, '_blank');
+        if (isSafeUrl(data.interactions.value)) {
+          window.open(data.interactions.value, '_blank', 'noopener,noreferrer');
+        } else {
+          console.warn('Blocked unsafe URL:', data.interactions.value);
+        }
       }
       return;
     }
