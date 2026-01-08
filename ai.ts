@@ -35,7 +35,7 @@ export const generateComponentStyles = async (prompt: string, currentProps: any,
   try {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-exp', // Updated to a reliable model version
+      model: 'gemini-3-flash-preview',
       contents: `
         You are an expert React UI designer. 
         Update the style properties for a "${type}" component based on this user request: "${prompt}".
@@ -66,7 +66,7 @@ export const generateResponsiveVariant = async (
   try {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-exp',
+      model: 'gemini-3-flash-preview',
       contents: `
         You are an expert Responsive Web Designer.
         Convert the following Desktop style configuration into a ${viewport}-optimized version.
