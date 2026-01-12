@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { ComponentData, Interaction, StyleConfig, CMSCollection, DataBinding } from './types';
-import { INITIAL_TREE, INITIAL_CMS_COLLECTIONS } from './constants';
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ComponentData, Interaction, StyleConfig, CMSCollection, DataBinding, Breakpoint, CMSItem } from './types';
+import { INITIAL_TREE, INITIAL_CMS_COLLECTIONS, API_BASE_URL } from './constants';
 import { generateId, findNode, updateNode, createComponent, generateCode, cloneNode, moveNode } from './utils';
 import { generateComponentStyles, generateResponsiveVariant } from './ai';
 import { ContextMenu } from './components/ContextMenu';
@@ -11,21 +12,29 @@ import { Inspector } from './components/Inspector';
 import { AssetModal } from './components/AssetModal';
 import { CodeModal } from './components/CodeModal';
 
+const DEFAULT_BREAKPOINTS: Breakpoint[] = [
+  { id: 'desktop', name: 'Desktop', width: '100%', height: '100%', type: 'desktop', icon: 'desktop' },
+  { id: 'ultrawide', name: 'Ultrawide', width: '2560px', height: '1080px', type: 'ultrawide', icon: 'tv' },
+  { id: 'tablet', name: 'Tablet', width: '768px', height: '1024px', type: 'tablet', icon: 'tablet-alt' },
+  { id: 'foldable', name: 'Foldable', width: '673px', height: '864px', type: 'foldable', icon: 'book-open' },
+  { id: 'mobile', name: 'Mobile', width: '375px', height: '812px', type: 'mobile', icon: 'mobile-alt' },
+];
+
 const App = () => {
   const [tree, setTree] = useState<ComponentData>(INITIAL_TREE);
   const [history, setHistory] = useState<ComponentData[]>([]);
   const [future, setFuture] = useState<ComponentData[]>([]);
   
-  // CMS STATE
   const [cmsCollections, setCmsCollections] = useState<CMSCollection[]>(INITIAL_CMS_COLLECTIONS);
+  const [breakpoints, setBreakpoints] = useState<Breakpoint[]>(DEFAULT_BREAKPOINTS);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [viewport, setViewport] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
+  const [viewport, setViewport] = useState<string>('desktop');
   const [previewMode, setPreviewMode] = useState(false);
   const [activeSideTab, setActiveSideTab] = useState<'add' | 'layers' | 'data'>('add');
   
   const [zoom, setZoom] = useState(1);
-  const [editingState, setEditingState] = useState<'base' | 'hover' | 'active' | 'focus'>('base');
+  const [editingState, setEditingState] = useState<string>('base'); 
   
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const [copiedStyle, setCopiedStyle] = useState<StyleConfig | null>(null);
@@ -35,8 +44,169 @@ const App = () => {
   const [aiPrompt, setAiPrompt] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [showCode, setShowCode] = useState(false);
+  
+  const [isSaving, setIsSaving] = useState(false);
+  const [isBackendAvailable, setIsBackendAvailable] = useState(true);
+  const pollInterval = useRef<any>(null);
 
-  // History Management
+  // --- Backend Integration ---
+
+  const loadOfflineData = () => {
+     console.log("Loading offline data...");
+     const savedTree = localStorage.getItem('vectra_project');
+     if (savedTree) {
+         try { setTree(JSON.parse(savedTree)); } catch(e) { console.error("Corrupt local tree"); }
+     }
+     
+     const savedCMS = localStorage.getItem('vectra_cms');
+     if (savedCMS) {
+         try { setCmsCollections(JSON.parse(savedCMS)); } catch(e) { console.error("Corrupt local CMS"); }
+     }
+  };
+
+  const fetchData = async () => {
+      try {
+          // Health Check first
+          const health = await fetch(`${API_BASE_URL}/health`);
+          if (!health.ok) throw new Error("Backend not healthy");
+
+          const projectRes = await fetch(`${API_BASE_URL}/project`);
+          const projectData = await projectRes.json();
+          
+          const cmsRes = await fetch(`${API_BASE_URL}/cms/collections`);
+          const cmsData = await cmsRes.json();
+
+          setTree(projectData);
+          setCmsCollections(cmsData);
+          setIsBackendAvailable(true);
+          return true;
+      } catch (error) {
+          console.warn("Backend unavailable:", error);
+          setIsBackendAvailable(false);
+          loadOfflineData();
+          return false;
+      }
+  };
+
+  useEffect(() => {
+    fetchData();
+    
+    // Auto-reconnect polling
+    pollInterval.current = setInterval(async () => {
+        if (!isBackendAvailable) {
+            try {
+                const res = await fetch(`${API_BASE_URL}/health`);
+                if (res.ok) {
+                    console.log("Backend reconnected!");
+                    fetchData(); // Reload data on reconnect
+                }
+            } catch(e) {}
+        }
+    }, 5000);
+
+    return () => clearInterval(pollInterval.current);
+  }, [isBackendAvailable]);
+
+  const handleSave = async () => {
+      setIsSaving(true);
+      
+      // Save to local storage always as backup
+      localStorage.setItem('vectra_project', JSON.stringify(tree));
+      localStorage.setItem('vectra_cms', JSON.stringify(cmsCollections));
+
+      if (isBackendAvailable) {
+          try {
+              const res = await fetch(`${API_BASE_URL}/project`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(tree)
+              });
+              if (!res.ok) throw new Error("Save failed");
+          } catch (error) {
+              console.error("Failed to save to backend", error);
+              setIsBackendAvailable(false); 
+              alert("Connection to backend lost. Saved locally.");
+          }
+      } else {
+          // Try to reconnect immediately on save attempt
+          try {
+             const health = await fetch(`${API_BASE_URL}/health`);
+             if (health.ok) {
+                 setIsBackendAvailable(true);
+                 // Retry save
+                 await fetch(`${API_BASE_URL}/project`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(tree)
+                });
+             }
+          } catch(e) {
+              // Still offline
+              await new Promise(r => setTimeout(r, 400)); 
+          }
+      }
+      
+      setIsSaving(false);
+  };
+
+  // --- CMS Actions ---
+
+  const handleAddCollection = async (name: string) => {
+    if (isBackendAvailable) {
+        try {
+            const res = await fetch(`${API_BASE_URL}/cms/collections`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            if (!res.ok) throw new Error("Failed to create collection");
+            const updatedCollections = await res.json();
+            setCmsCollections(updatedCollections);
+        } catch(e) { 
+            console.error(e);
+            alert("Failed to create collection on server.");
+        }
+    } else {
+        // Offline logic
+        const newCol: CMSCollection = {
+            id: name.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now(),
+            name,
+            fields: [{ id: 'title', name: 'Title', type: 'text' }],
+            items: []
+        };
+        setCmsCollections([...cmsCollections, newCol]);
+    }
+  };
+
+  const handleAddItem = async (collectionId: string, itemData: CMSItem) => {
+      if (isBackendAvailable) {
+          try {
+              const res = await fetch(`${API_BASE_URL}/cms/item/${collectionId}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(itemData)
+              });
+              if (!res.ok) throw new Error("Failed to add item");
+              const updatedCollections = await res.json();
+              setCmsCollections(updatedCollections);
+          } catch (e) { 
+              console.error(e);
+              alert("Failed to add item on server.");
+          }
+      } else {
+          // Offline logic
+          const updated = cmsCollections.map(c => {
+              if (c.id === collectionId) {
+                  return { ...c, items: [...c.items, { id: 'item-'+Date.now(), ...itemData }] };
+              }
+              return c;
+          });
+          setCmsCollections(updated);
+      }
+  };
+
+  // ---------------------------
+
   const saveToHistory = (newTree: ComponentData) => {
     setHistory(prev => {
       const newHistory = [...prev, tree];
@@ -69,7 +239,6 @@ const App = () => {
     });
   }, [tree]);
 
-  // Actions
   const duplicateComponent = useCallback((id?: string) => {
     const targetId = id || selectedId;
     if (!targetId || targetId === 'root') return;
@@ -104,7 +273,6 @@ const App = () => {
     }));
   }, [tree, selectedId]);
 
-  // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
@@ -119,12 +287,17 @@ const App = () => {
         e.preventDefault();
         duplicateComponent();
       }
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+          e.preventDefault();
+          handleSave();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, duplicateComponent]);
+  }, [undo, redo, duplicateComponent, tree, cmsCollections, isBackendAvailable]);
 
-  const handleDrop = (parentId: string, type: string, movedId?: string, index: number = -1) => {
+  // Using useCallback to prevent re-renders of all drag targets during drag operations
+  const handleDrop = useCallback((parentId: string, type: string, movedId?: string, index: number = -1) => {
     if (movedId) {
       const newTree = moveNode(tree, movedId, parentId, index);
       saveToHistory(newTree);
@@ -144,21 +317,31 @@ const App = () => {
         };
       }));
     }
-  };
+  }, [tree]);
 
-  const updateProps = (id: string, newProps: any) => {
-    saveToHistory(updateNode(tree, id, node => ({
-      ...node,
-      props: { ...node.props, ...newProps }
-    })));
-  };
+  const updateProps = useCallback((id: string, newProps: any) => {
+    saveToHistory(updateNode(tree, id, node => {
+      if (newProps._interaction) {
+          const { _interaction, ...restProps } = newProps;
+          return {
+              ...node,
+              interactions: _interaction,
+              props: { ...node.props, ...restProps }
+          };
+      }
+      return {
+        ...node,
+        props: { ...node.props, ...newProps }
+      };
+    }));
+  }, [tree]);
 
-  const updateName = (id: string, name: string) => {
+  const updateName = useCallback((id: string, name: string) => {
     saveToHistory(updateNode(tree, id, node => ({
       ...node,
       name: name
     })));
-  };
+  }, [tree]);
 
   const updateCustomClass = (id: string, className: string) => {
     saveToHistory(updateNode(tree, id, node => ({
@@ -167,7 +350,6 @@ const App = () => {
     })));
   };
 
-  // CMS UPDATERS
   const updateRepeatConfig = (id: string, collectionId: string | null) => {
       saveToHistory(updateNode(tree, id, node => ({
           ...node,
@@ -187,30 +369,42 @@ const App = () => {
       }));
   };
 
-  // RESPONSIVE STYLE UPDATER
   const updateStyleConfig = (id: string, newConfig: Partial<StyleConfig>) => {
     saveToHistory(updateNode(tree, id, node => {
-       if (editingState === 'hover') {
-         return { ...node, hoverStyleConfig: { ...(node.hoverStyleConfig || {}), ...newConfig } };
-       }
-       if (editingState === 'focus') {
-         return { ...node, focusStyleConfig: { ...(node.focusStyleConfig || {}), ...newConfig } };
-       }
-       if (editingState === 'active') {
-         return { ...node, activeStyleConfig: { ...(node.activeStyleConfig || {}), ...newConfig } };
-       }
+       if (editingState === 'hover') return { ...node, hoverStyleConfig: { ...(node.hoverStyleConfig || {}), ...newConfig } };
+       if (editingState === 'focus') return { ...node, focusStyleConfig: { ...(node.focusStyleConfig || {}), ...newConfig } };
+       if (editingState === 'active') return { ...node, activeStyleConfig: { ...(node.activeStyleConfig || {}), ...newConfig } };
        
-       if (viewport === 'mobile') {
-         return { ...node, mobileStyleConfig: { ...(node.mobileStyleConfig || {}), ...newConfig } };
+       if (editingState !== 'base' && !['hover', 'focus', 'active'].includes(editingState)) {
+          return {
+             ...node,
+             customStates: {
+                ...(node.customStates || {}),
+                [editingState]: { ...(node.customStates?.[editingState] || {}), ...newConfig }
+             }
+          };
        }
-       if (viewport === 'tablet') {
-         return { ...node, tabletStyleConfig: { ...(node.tabletStyleConfig || {}), ...newConfig } };
+
+       if (viewport !== 'desktop') {
+          if (viewport === 'mobile') {
+             return { ...node, mobileStyleConfig: { ...(node.mobileStyleConfig || {}), ...newConfig } };
+          }
+          if (viewport === 'tablet') {
+             return { ...node, tabletStyleConfig: { ...(node.tabletStyleConfig || {}), ...newConfig } };
+          }
+          return {
+             ...node,
+             breakpoints: {
+                ...(node.breakpoints || {}),
+                [viewport]: { ...(node.breakpoints?.[viewport] || {}), ...newConfig }
+             }
+          }
        }
        return { ...node, styleConfig: { ...node.styleConfig, ...newConfig } };
     }));
   };
 
-  const deleteComponent = (id: string) => {
+  const deleteComponent = useCallback((id: string) => {
     if (id === 'root') return;
     const recursiveDelete = (node: ComponentData): ComponentData => ({
       ...node,
@@ -218,7 +412,7 @@ const App = () => {
     });
     saveToHistory(recursiveDelete(tree));
     setSelectedId(null);
-  };
+  }, [tree]);
 
   const handleCopyStyles = () => {
     if (!selectedId) return;
@@ -254,21 +448,28 @@ const App = () => {
     if (!node) return;
 
     setIsAiLoading(true);
-    const responsiveStyle = await generateResponsiveVariant(node.styleConfig, viewport as 'mobile'|'tablet');
-    setIsAiLoading(false);
-
-    if (responsiveStyle) {
-        if (viewport === 'mobile') {
-            saveToHistory(updateNode(tree, selectedId, n => ({ ...n, mobileStyleConfig: { ...n.mobileStyleConfig, ...responsiveStyle } })));
-        } else if (viewport === 'tablet') {
-            saveToHistory(updateNode(tree, selectedId, n => ({ ...n, tabletStyleConfig: { ...n.tabletStyleConfig, ...responsiveStyle } })));
+    if (viewport === 'mobile' || viewport === 'tablet') {
+        const responsiveStyle = await generateResponsiveVariant(node.styleConfig, viewport);
+        setIsAiLoading(false);
+        if (responsiveStyle) {
+            updateStyleConfig(selectedId, responsiveStyle);
         }
+    } else {
+        setIsAiLoading(false);
     }
   };
 
-  const handleContextMenu = (e: React.MouseEvent, id: string) => {
+  const handleContextMenu = useCallback((e: React.MouseEvent, id: string) => {
     setContextMenu({ x: e.clientX, y: e.clientY, id });
     setSelectedId(id);
+  }, []);
+
+  const addCustomState = (id: string, stateName: string) => {
+      saveToHistory(updateNode(tree, id, node => ({
+          ...node,
+          customStates: { ...(node.customStates || {}), [stateName]: {} }
+      })));
+      setEditingState(stateName);
   };
 
   const selectedNode = selectedId ? findNode(tree, selectedId) : null;
@@ -278,9 +479,10 @@ const App = () => {
     if (editingState === 'hover') return selectedNode.hoverStyleConfig || {};
     if (editingState === 'focus') return selectedNode.focusStyleConfig || {};
     if (editingState === 'active') return selectedNode.activeStyleConfig || {};
-    
+    if (editingState !== 'base') return selectedNode.customStates?.[editingState] || {};
     if (viewport === 'mobile') return { ...selectedNode.styleConfig, ...selectedNode.mobileStyleConfig };
     if (viewport === 'tablet') return { ...selectedNode.styleConfig, ...selectedNode.tabletStyleConfig };
+    if (viewport !== 'desktop') return { ...selectedNode.styleConfig, ...(selectedNode.breakpoints?.[viewport] || {}) };
     return selectedNode.styleConfig;
   };
 
@@ -320,6 +522,11 @@ const App = () => {
         showCode={showCode}
         setShowCode={setShowCode}
         onClearSelection={() => setSelectedId(null)}
+        breakpoints={breakpoints}
+        setBreakpoints={setBreakpoints}
+        onSave={handleSave}
+        isSaving={isSaving}
+        isBackendAvailable={isBackendAvailable}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -332,6 +539,9 @@ const App = () => {
           onSelect={setSelectedId}
           onUpdateName={updateName}
           collections={cmsCollections}
+          onDrop={handleDrop}
+          onAddCollection={handleAddCollection}
+          onAddItem={handleAddItem}
         />
 
         <Canvas 
@@ -346,7 +556,8 @@ const App = () => {
           onContextMenu={handleContextMenu}
           onTextChange={(id, text) => updateProps(id, { text })}
           onClearSelection={() => setSelectedId(null)}
-          cmsCollections={cmsCollections} // Pass CMS collections to Canvas
+          cmsCollections={cmsCollections}
+          breakpoints={breakpoints}
         />
 
         <Inspector 
@@ -371,6 +582,7 @@ const App = () => {
           cmsCollections={cmsCollections}
           updateRepeatConfig={updateRepeatConfig}
           updateBinding={updateBinding}
+          addCustomState={addCustomState}
         />
       </div>
       

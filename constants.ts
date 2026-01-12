@@ -1,5 +1,9 @@
 import { ComponentData, CMSCollection } from './types';
 
+// Central API Configuration
+export const API_BASE_URL = 'http://localhost:3001/api';
+export const ASSETS_URL = 'http://localhost:3001/uploads';
+
 export const INITIAL_TREE: ComponentData = {
   id: 'root',
   name: 'Page Body',

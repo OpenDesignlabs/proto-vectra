@@ -13,6 +13,31 @@ export const DataPanel: React.FC<DataPanelProps> = ({ collections, onAddCollecti
   
   const selectedCollection = collections.find(c => c.id === selectedCollectionId);
 
+  const handleCreateCollection = () => {
+      const name = prompt("Enter collection name (e.g., 'Products'):");
+      if (name) {
+          onAddCollection(name);
+      }
+  };
+
+  const handleCreateItem = () => {
+      if (!selectedCollection) return;
+      const newItem: any = {};
+      
+      // Simple prompt based entry for now
+      selectedCollection.fields.forEach(field => {
+          const value = prompt(`Enter value for ${field.name}:`);
+          if (value !== null) {
+              newItem[field.id] = value;
+          }
+      });
+      
+      // Basic validation
+      if (Object.keys(newItem).length > 0) {
+          onAddItem(selectedCollection.id, newItem);
+      }
+  };
+
   return (
     <div className="flex flex-col h-full text-sm">
       <div className="p-4 border-b border-vectra-border bg-vectra-bg">
@@ -44,8 +69,8 @@ export const DataPanel: React.FC<DataPanelProps> = ({ collections, onAddCollecti
              </div>
            ))}
            <button 
-             className="w-full py-2 border border-dashed border-gray-600 rounded text-gray-400 hover:text-white hover:border-gray-400 text-xs mt-2"
-             onClick={() => alert("Create Collection feature coming soon!")}
+             className="w-full py-2 border border-dashed border-gray-600 rounded text-gray-400 hover:text-white hover:border-gray-400 text-xs mt-2 transition-colors"
+             onClick={handleCreateCollection}
            >
              + Create Collection
            </button>
@@ -84,8 +109,8 @@ export const DataPanel: React.FC<DataPanelProps> = ({ collections, onAddCollecti
                  </tbody>
               </table>
                <button 
-                 className="w-full py-2 border border-dashed border-gray-600 rounded text-gray-400 hover:text-white hover:border-gray-400 text-xs mt-4"
-                 onClick={() => alert("Add Item feature coming soon!")}
+                 className="w-full py-2 border border-dashed border-gray-600 rounded text-gray-400 hover:text-white hover:border-gray-400 text-xs mt-4 transition-colors"
+                 onClick={handleCreateItem}
                >
                  + Add Item
                </button>

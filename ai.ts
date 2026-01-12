@@ -1,61 +1,63 @@
 import { GoogleGenAI } from "@google/genai";
 import { ComponentType, StyleConfig } from './types';
+import { API_BASE_URL } from './constants';
 
-// Lazy initialization to prevent module-level crashes
-let aiClient: GoogleGenAI | null = null;
-
-const getAiClient = () => {
-  if (!aiClient) {
-    let apiKey = '';
-    
-    // Safely attempt to get API Key
-    try {
-      if (typeof process !== 'undefined' && process.env) {
-        apiKey = process.env.API_KEY || '';
-      }
-    } catch (e) {
-      console.warn("Failed to access process.env");
-    }
-
-    if (!apiKey) {
-      console.warn("API_KEY is missing. AI features will not work.");
-      // Return a mock object to prevent crashes, but AI calls will fail gracefully later or do nothing
-      return {
-        models: {
-          generateContent: async () => ({ text: "{}" })
-        }
-      } as unknown as GoogleGenAI;
-    }
-    aiClient = new GoogleGenAI({ apiKey });
-  }
-  return aiClient;
+// Helper to get client-side instance if backend fails
+const getClientAI = () => {
+  // @ts-ignore - Process is shimmed in index.html for this environment
+  const apiKey = process.env.API_KEY || (window as any).process?.env?.API_KEY; 
+  if (!apiKey) throw new Error("API Key not found in environment. Please set it in index.html or environment variables.");
+  return new GoogleGenAI({ apiKey });
 };
 
 export const generateComponentStyles = async (prompt: string, currentProps: any, type: ComponentType) => {
+  // 1. Try Backend (Secure)
   try {
-    const ai = getAiClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `
+    const response = await fetch(`${API_BASE_URL}/ai/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        task: 'style',
+        prompt,
+        currentProps,
+        type
+      })
+    });
+
+    if (!response.ok) {
+        throw new Error('Backend unavailable');
+    }
+
+    return await response.json();
+  } catch (backendError) {
+    console.warn("Backend unavailable, falling back to client-side AI generation.");
+    
+    // 2. Fallback to Client-Side (Dev/Offline)
+    try {
+        const ai = getClientAI();
+        const contents = `
         You are an expert React UI designer. 
         Update the style properties for a "${type}" component based on this user request: "${prompt}".
-        
         Current Props: ${JSON.stringify(currentProps)}
-        
         Return ONLY the updated JSON object for the "props". 
-        Do not change logic props, only style related ones (className, style, text content if applicable).
-        Use Tailwind CSS classes in 'className' for styling.
-      `,
-      config: {
-        responseMimeType: "application/json",
-      }
-    });
-    const text = response.text;
-    if (!text) return null;
-    return JSON.parse(text);
-  } catch (e) {
-    console.error("AI Error:", e);
-    return null;
+        Do not change logic props, only style related ones.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents,
+            config: {
+                responseMimeType: "application/json",
+            }
+        });
+        
+        const text = response.text;
+        if (!text) return null;
+        return JSON.parse(text);
+    } catch (clientError) {
+        console.error("AI Generation failed (Both Backend and Client):", clientError);
+        return null;
+    }
   }
 };
 
@@ -63,31 +65,50 @@ export const generateResponsiveVariant = async (
   desktopStyle: StyleConfig, 
   viewport: 'tablet' | 'mobile'
 ): Promise<StyleConfig | null> => {
+  // 1. Try Backend (Secure)
   try {
-    const ai = getAiClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `
-        You are an expert Responsive Web Designer.
-        Convert the following Desktop style configuration into a ${viewport}-optimized version.
-        
-        Rules:
-        1. If flexDirection is 'row', change it to 'col' for mobile (Smart Stacking).
-        2. Adjust widths to 'full' if they are fixed or fractional.
-        3. Adjust padding and gaps to be smaller for mobile/tablet.
-        4. Return ONLY the JSON object for the new StyleConfig.
-        
-        Desktop Config: ${JSON.stringify(desktopStyle)}
-      `,
-      config: {
-        responseMimeType: "application/json",
-      }
+    const response = await fetch(`${API_BASE_URL}/ai/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        task: 'responsive',
+        currentProps: desktopStyle, // sending style config as props payload
+        prompt: viewport // context
+      })
     });
-    const text = response.text;
-    if (!text) return null;
-    return JSON.parse(text);
-  } catch (e) {
-    console.error("AI Responsive Error:", e);
-    return null;
+
+    if (!response.ok) {
+        throw new Error('Backend unavailable');
+    }
+
+    return await response.json();
+  } catch (backendError) {
+    console.warn("Backend unavailable, falling back to client-side AI generation.");
+
+    // 2. Fallback to Client-Side (Dev/Offline)
+    try {
+        const ai = getClientAI();
+        const contents = `
+        You are an expert Responsive Web Designer.
+        Convert the following Desktop style configuration into a mobile/tablet optimized version.
+        Desktop Config: ${JSON.stringify(desktopStyle)}
+        Return ONLY the JSON object for the new StyleConfig.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents,
+            config: {
+                responseMimeType: "application/json",
+            }
+        });
+
+        const text = response.text;
+        if (!text) return null;
+        return JSON.parse(text);
+    } catch (clientError) {
+        console.error("AI Generation failed:", clientError);
+        return null;
+    }
   }
 };

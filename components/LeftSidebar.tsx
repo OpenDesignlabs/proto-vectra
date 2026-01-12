@@ -3,7 +3,7 @@ import { Icon } from './Icon';
 import { DraggableItem } from './DraggableItem';
 import { LayersPanel } from './LayersPanel';
 import { DataPanel } from './DataPanel';
-import { ComponentData, CMSCollection } from '../types';
+import { ComponentData, CMSCollection, CMSItem } from '../types';
 
 interface LeftSidebarProps {
   activeTab: 'add' | 'layers' | 'data';
@@ -14,6 +14,9 @@ interface LeftSidebarProps {
   onSelect: (id: string) => void;
   onUpdateName: (id: string, name: string) => void;
   collections: CMSCollection[];
+  onDrop: (parentId: string, type: string, movedId?: string, index?: number) => void;
+  onAddCollection: (name: string) => void;
+  onAddItem: (collectionId: string, item: CMSItem) => void;
 }
 
 export const LeftSidebar: React.FC<LeftSidebarProps> = ({
@@ -24,7 +27,10 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   selectedId,
   onSelect,
   onUpdateName,
-  collections
+  collections,
+  onDrop,
+  onAddCollection,
+  onAddItem
 }) => {
   return (
     <div className={`w-64 bg-vectra-panel border-r border-vectra-border flex flex-col transition-all duration-300 ${previewMode ? '-ml-64' : ''}`}>
@@ -57,13 +63,19 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
           </div>
         ) : activeTab === 'layers' ? (
           <div className="p-4 text-sm">
-            <LayersPanel data={tree} selectedId={selectedId} onSelect={onSelect} onUpdateName={onUpdateName} />
+            <LayersPanel 
+              data={tree} 
+              selectedId={selectedId} 
+              onSelect={onSelect} 
+              onUpdateName={onUpdateName} 
+              onDrop={onDrop}
+            />
           </div>
         ) : (
           <DataPanel 
             collections={collections} 
-            onAddCollection={() => {}} 
-            onAddItem={() => {}} 
+            onAddCollection={onAddCollection} 
+            onAddItem={onAddItem} 
           />
         )}
       </div>

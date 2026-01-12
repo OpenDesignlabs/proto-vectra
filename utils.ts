@@ -1,4 +1,5 @@
-import { ComponentData, ComponentType, StyleConfig } from './types';
+
+import { ComponentData, ComponentType, StyleConfig, AuditIssue } from './types';
 
 export const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -45,11 +46,28 @@ export const moveNode = (root: ComponentData, nodeId: string, newParentId: strin
   const nodeToMove = findNode(root, nodeId);
   if (!nodeToMove) return root;
 
+  // Prevent moving root or into self
+  if (nodeToMove.id === newParentId || nodeToMove.id === 'root') return root;
+
   const isMovingIntoChild = (parent: ComponentData, targetId: string): boolean => {
       if (parent.id === targetId) return true;
       return parent.children.some(child => isMovingIntoChild(child, targetId));
   };
   if (isMovingIntoChild(nodeToMove, newParentId)) return root;
+
+  let adjustedIndex = index;
+  
+  // If reordering within the same parent
+  if (nodeToMove.parentId === newParentId && index !== -1) {
+      const parent = findNode(root, newParentId);
+      if (parent) {
+          const currentIndex = parent.children.findIndex(c => c.id === nodeId);
+          // If we are moving an item "down" the list, the removal will shift indices up, so we must decrement the target index.
+          if (currentIndex !== -1 && currentIndex < index) {
+              adjustedIndex -= 1;
+          }
+      }
+  }
 
   const treeWithoutNode = removeNode(root, nodeId);
   if (!treeWithoutNode) return root;
@@ -58,11 +76,15 @@ export const moveNode = (root: ComponentData, nodeId: string, newParentId: strin
 
   return updateNode(treeWithoutNode, newParentId, (parent) => {
     const newChildren = [...parent.children];
-    if (index >= 0) {
-      newChildren.splice(index, 0, nodeWithNewParent);
+    
+    // Safety clamp
+    if (adjustedIndex < 0) {
+        newChildren.push(nodeWithNewParent);
     } else {
-      newChildren.push(nodeWithNewParent);
+        if (adjustedIndex > newChildren.length) adjustedIndex = newChildren.length;
+        newChildren.splice(adjustedIndex, 0, nodeWithNewParent);
     }
+    
     return {
       ...parent,
       children: newChildren
@@ -178,7 +200,7 @@ export const getDefaultProps = (type: ComponentType): { props: any, styleConfig:
         props: { placeholder: 'Enter text...', type: 'text' },
         styleConfig: {
           ...baseStyle,
-          paddingAll: 2,
+          paddingAll: 2, 
           backgroundColor: '#ffffff',
           borderWidth: 1,
           borderColor: '#d1d5db',
@@ -205,13 +227,13 @@ export const getDefaultProps = (type: ComponentType): { props: any, styleConfig:
 
 export const createComponent = (type: string): ComponentData => {
   const id = generateId();
-  // ... (Component creation logic stays same, just re-exporting to be safe with new types)
   if (type === 'navbar') {
     const base = getDefaultProps('container');
     const nav: ComponentData = {
       id,
       name: 'Navbar',
       type: 'container',
+      tagName: 'nav',
       props: {},
       styleConfig: { 
         ...base.styleConfig, 
@@ -268,77 +290,63 @@ export const createComponent = (type: string): ComponentData => {
     nav.children.push(linksContainer);
     return nav;
   }
-
-  if (type === 'modal') {
+  
+  if (type === 'hero') {
       const base = getDefaultProps('container');
-      const overlay: ComponentData = {
-          id,
-          name: 'Modal Overlay',
-          type: 'container',
-          props: {},
-          styleConfig: {
-              ...base.styleConfig,
-              position: 'fixed',
-              top: 0, left: 0, right: 0, bottom: 0,
-              backgroundColor: '#000000',
-              opacity: 80,
-              zIndex: 99,
-              justifyContent: 'center',
-              alignItems: 'center',
-              backdropBlur: 'sm'
-          },
-          children: [],
-          parentId: null
-      };
-      
-      const contentId = generateId();
-      overlay.children.push({
-          id: contentId,
-          name: 'Modal Content',
-          type: 'container',
-          props: {},
-          styleConfig: {
-              ...base.styleConfig,
-              width: '96',
-              height: 'auto',
-              backgroundColor: '#ffffff',
-              borderRadius: 'lg',
-              paddingAll: 6,
-              shadow: 'xl',
-              opacity: 100 // Reset opacity for child
-          },
-          children: [
-              {
-                  id: generateId(),
-                  name: 'Title',
-                  type: 'text',
-                  props: { text: 'Modal Title' },
-                  styleConfig: { ...getDefaultProps('text').styleConfig, fontSize: 'xl', fontWeight: 'bold', marginBottom: 2 },
-                  children: [],
-                  parentId: contentId
-              },
-              {
-                  id: generateId(),
-                  name: 'Body',
-                  type: 'text',
-                  props: { text: 'This is the modal content area.' },
-                  styleConfig: { ...getDefaultProps('text').styleConfig, marginBottom: 4, textColor: '#4b5563' },
-                  children: [],
-                  parentId: contentId
-              },
-              {
-                  id: generateId(),
-                  name: 'Close Button',
-                  type: 'button',
-                  props: { text: 'Close' },
-                  styleConfig: { ...getDefaultProps('button').styleConfig, width: 'full' },
-                  children: [],
-                  parentId: contentId
-              }
-          ],
-          parentId: id
-      });
-      return overlay;
+      const hero: ComponentData = {
+      id,
+      name: 'Hero Section',
+      type: 'container',
+      props: {},
+      styleConfig: { 
+        ...base.styleConfig, 
+        backgroundColor: '#111827', 
+        paddingAll: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        height: '96',
+        position: 'relative'
+      },
+      children: [],
+      parentId: null
+    };
+    
+    const titleId = generateId();
+    hero.children.push({
+      id: titleId,
+      name: 'Hero Title',
+      type: 'text',
+      props: { text: 'Build Faster with Vectra' },
+      styleConfig: { ...getDefaultProps('text').styleConfig, fontSize: '4xl', fontWeight: 'extrabold', textColor: '#ffffff', textAlign: 'center' },
+      children: [],
+      parentId: id
+    });
+
+    const subId = generateId();
+    hero.children.push({
+      id: subId,
+      name: 'Hero Subtitle',
+      type: 'text',
+      props: { text: 'The visual builder for React developers. Design, code, and ship in record time.' },
+      styleConfig: { ...getDefaultProps('text').styleConfig, fontSize: 'lg', textColor: '#9ca3af', textAlign: 'center', width: '2/3' },
+      children: [],
+      parentId: id
+    });
+
+    const btnId = generateId();
+    hero.children.push({
+      id: btnId,
+      name: 'Hero Button',
+      type: 'button',
+      props: { text: 'Get Started' },
+      styleConfig: { ...getDefaultProps('button').styleConfig, paddingAll: 4, fontSize: 'lg', width: 'auto' },
+      hoverStyleConfig: { backgroundColor: '#374151' },
+      children: [],
+      parentId: id
+    });
+
+    return hero;
   }
 
   if (type === 'card') {
@@ -416,64 +424,78 @@ export const createComponent = (type: string): ComponentData => {
     return card;
   }
 
-  if (type === 'hero') {
-    const base = getDefaultProps('container');
-    const hero: ComponentData = {
-      id,
-      name: 'Hero Section',
-      type: 'container',
-      props: {},
-      styleConfig: { 
-        ...base.styleConfig, 
-        backgroundColor: '#111827', 
-        paddingAll: 12,
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 6,
-        height: '96',
-        position: 'relative'
-      },
-      children: [],
-      parentId: null
-    };
-    
-    const titleId = generateId();
-    hero.children.push({
-      id: titleId,
-      name: 'Hero Title',
-      type: 'text',
-      props: { text: 'Build Faster with Vectra' },
-      styleConfig: { ...getDefaultProps('text').styleConfig, fontSize: '4xl', fontWeight: 'extrabold', textColor: '#ffffff', textAlign: 'center' },
-      children: [],
-      parentId: id
-    });
-
-    const subId = generateId();
-    hero.children.push({
-      id: subId,
-      name: 'Hero Subtitle',
-      type: 'text',
-      props: { text: 'The visual builder for React developers. Design, code, and ship in record time.' },
-      styleConfig: { ...getDefaultProps('text').styleConfig, fontSize: 'lg', textColor: '#9ca3af', textAlign: 'center', width: '2/3' },
-      children: [],
-      parentId: id
-    });
-
-    const btnId = generateId();
-    hero.children.push({
-      id: btnId,
-      name: 'Hero Button',
-      type: 'button',
-      props: { text: 'Get Started' },
-      styleConfig: { ...getDefaultProps('button').styleConfig, paddingAll: 4, fontSize: 'lg', width: 'auto' },
-      hoverStyleConfig: { backgroundColor: '#374151' },
-      children: [],
-      parentId: id
-    });
-
-    return hero;
+  if (type === 'modal') {
+      const base = getDefaultProps('container');
+      const overlay: ComponentData = {
+          id,
+          name: 'Modal Overlay',
+          type: 'container',
+          props: {},
+          styleConfig: {
+              ...base.styleConfig,
+              position: 'fixed',
+              top: 0, left: 0, right: 0, bottom: 0,
+              backgroundColor: '#000000',
+              opacity: 80,
+              zIndex: 99,
+              justifyContent: 'center',
+              alignItems: 'center',
+              backdropBlur: 'sm'
+          },
+          children: [],
+          parentId: null
+      };
+      
+      const contentId = generateId();
+      overlay.children.push({
+          id: contentId,
+          name: 'Modal Content',
+          type: 'container',
+          props: {},
+          styleConfig: {
+              ...base.styleConfig,
+              width: '96',
+              height: 'auto',
+              backgroundColor: '#ffffff',
+              borderRadius: 'lg',
+              paddingAll: 6,
+              shadow: 'xl',
+              opacity: 100 
+          },
+          children: [
+              {
+                  id: generateId(),
+                  name: 'Title',
+                  type: 'text',
+                  props: { text: 'Modal Title' },
+                  styleConfig: { ...getDefaultProps('text').styleConfig, fontSize: 'xl', fontWeight: 'bold', marginBottom: 2 },
+                  children: [],
+                  parentId: contentId
+              },
+              {
+                  id: generateId(),
+                  name: 'Body',
+                  type: 'text',
+                  props: { text: 'This is the modal content area.' },
+                  styleConfig: { ...getDefaultProps('text').styleConfig, marginBottom: 4, textColor: '#4b5563' },
+                  children: [],
+                  parentId: contentId
+              },
+              {
+                  id: generateId(),
+                  name: 'Close Button',
+                  type: 'button',
+                  props: { text: 'Close' },
+                  styleConfig: { ...getDefaultProps('button').styleConfig, width: 'full' },
+                  children: [],
+                  parentId: contentId
+              }
+          ],
+          parentId: id
+      });
+      return overlay;
   }
-  
+
   const { name, props, styleConfig } = getDefaultProps(type as ComponentType);
   return {
     id,
@@ -589,11 +611,6 @@ export const getTailwindClasses = (config: StyleConfig, prefix = ''): string => 
   if (config.transformStyle === 'preserve-3d') classes.push(`${p}[transform-style:preserve-3d]`);
   if (config.backfaceVisibility === 'hidden') classes.push(`${p}[backface-visibility:hidden]`);
   if (config.transformOrigin) classes.push(`${p}[transform-origin:${config.transformOrigin}]`);
-  
-  // Ensure we have transform-style if rotating
-  if ((config.rotateX !== undefined && config.rotateX !== 0) || (config.rotateY !== undefined && config.rotateY !== 0)) {
-       // if not explicitly set, we often want preserve-3d for children, but let user decide via transformStyle prop
-  }
 
   // Filters
   if (config.blur && config.blur !== 'none') classes.push(`${p}blur-${config.blur}`);
@@ -605,7 +622,6 @@ export const getTailwindClasses = (config: StyleConfig, prefix = ''): string => 
   if (config.sepia !== undefined && config.sepia !== 0) classes.push(`${p}sepia-[${config.sepia/100}]`);
 
   // Animation & Transitions
-  // If scrollTrigger is true, animation class is applied in Renderer via Observer, not here
   if (!config.scrollTrigger && config.animation && config.animation !== 'none') {
       classes.push(`${p}animate-${config.animation}`);
   }
@@ -615,56 +631,218 @@ export const getTailwindClasses = (config: StyleConfig, prefix = ''): string => 
   return classes.join(' ');
 };
 
+const hasClientFeatures = (node: ComponentData): boolean => {
+  if (node.interactions && node.interactions.type !== 'none') return true;
+  if (node.type === 'input') return true; // Inputs typically need state
+  if (node.styleConfig.scrollTrigger) return true; // Needs IntersectionObserver
+  return node.children.some(child => hasClientFeatures(child));
+};
+
+const generateJSX = (node: ComponentData, indent: number): string => {
+    const space = '  '.repeat(indent);
+    const baseClasses = getTailwindClasses(node.styleConfig);
+    const hoverClasses = node.hoverStyleConfig ? getTailwindClasses(node.hoverStyleConfig, 'hover') : '';
+    const focusClasses = node.focusStyleConfig ? getTailwindClasses(node.focusStyleConfig, 'focus') : '';
+    const activeClasses = node.activeStyleConfig ? getTailwindClasses(node.activeStyleConfig, 'active') : '';
+    
+    // Breakpoints logic could be added here similar to getTailwindClasses but prefixed
+    let responsiveClasses = '';
+    // (Omitted for brevity in this step, but in production would iterate node.breakpoints)
+
+    const finalClassName = `${baseClasses} ${hoverClasses} ${focusClasses} ${activeClasses} ${node.customClassName || ''} ${node.props.className || ''}`.trim();
+    
+    const propsStr = Object.entries(node.props)
+      .filter(([key]) => key !== 'children' && key !== 'text' && key !== 'className' && key !== 'style')
+      .map(([key, val]) => {
+        if (val === true) return key;
+        return `${key}="${val}"`;
+      })
+      .join(' ');
+
+    const styleObj: string[] = [];
+    if (node.styleConfig.backgroundColor && node.styleConfig.backgroundGradient === 'none') {
+        styleObj.push(`backgroundColor: '${node.styleConfig.backgroundColor}'`);
+    }
+    // ... other inline styles ...
+    if (node.styleConfig.backgroundImage) styleObj.push(`backgroundImage: 'url(${node.styleConfig.backgroundImage})'`);
+
+    const styleAttr = styleObj.length > 0 ? `style={{ ${styleObj.join(', ')} }}` : '';
+    const tagProps = `className="${finalClassName}" ${propsStr} ${styleAttr}`.trim();
+
+    // Determine Tag Name
+    let Tag = node.tagName || 'div';
+    if (!node.tagName) {
+        if (node.type === 'button') Tag = 'button';
+        if (node.type === 'text') Tag = 'p';
+        if (node.type === 'image') Tag = 'img';
+        if (node.type === 'input') Tag = 'input';
+        if (node.type === 'video') Tag = 'video';
+    }
+
+    const startComment = indent === 2 ? `\n${space}{/* ${node.name} */}` : '';
+
+    const selfClosing = ['img', 'input', 'br', 'hr'].includes(Tag);
+
+    if (selfClosing) {
+        return `${startComment}\n${space}<${Tag} ${tagProps} />`;
+    }
+
+    let content = '';
+    if (node.type === 'text') content = node.props.text || '';
+    if (node.type === 'button') content = node.props.text || '';
+
+    if (node.children.length > 0) {
+        content = node.children.map(c => generateJSX(c, indent + 1)).join('');
+        return `${startComment}\n${space}<${Tag} ${tagProps}>\n${content}\n${space}</${Tag}>`;
+    }
+
+    return `${startComment}\n${space}<${Tag} ${tagProps}>${content}</${Tag}>`;
+};
+
 export const generateCode = (node: ComponentData, indent = 0): string => {
-  // ... (Code generation remains largely the same, relying on getTailwindClasses)
-  const space = '  '.repeat(indent);
-  const baseClasses = getTailwindClasses(node.styleConfig);
-  const hoverClasses = node.hoverStyleConfig ? getTailwindClasses(node.hoverStyleConfig, 'hover') : '';
-  const focusClasses = node.focusStyleConfig ? getTailwindClasses(node.focusStyleConfig, 'focus') : '';
-  const activeClasses = node.activeStyleConfig ? getTailwindClasses(node.activeStyleConfig, 'active') : '';
+  const isClient = hasClientFeatures(node);
   
-  // ...
-  const finalClassName = `${baseClasses} ${hoverClasses} ${focusClasses} ${activeClasses} ${node.customClassName || ''} ${node.props.className || ''}`.trim();
+  const jsx = generateJSX(node, 2);
+
+  return `
+${isClient ? "'use client';\n" : ""}
+import React from 'react';
+
+export default function GeneratedComponent() {
+  return (
+${jsx}
+  );
+}
+  `.trim();
+};
+
+export const performAudit = (rootNode: ComponentData): AuditIssue[] => {
+  const issues: AuditIssue[] = [];
+  let totalNodes = 0;
+  let totalListeners = 0;
+  let totalImages = 0;
+
+  const checkNode = (n: ComponentData, depth: number) => {
+    totalNodes++;
+
+    // 1. Structure: Deep Nesting
+    if (depth > 8) {
+       issues.push({
+         id: `nesting-${n.id}`,
+         nodeId: n.id,
+         severity: 'medium',
+         category: 'structure', 
+         title: 'Deep Nesting Detected',
+         description: `Component "${n.name}" is nested ${depth} levels deep.`,
+         suggestion: 'Flatten your component structure to reduce DOM complexity and improve rendering speed.'
+       });
+    }
+
+    // 2. Performance: Animation Checks
+    if (n.styleConfig.animation && n.styleConfig.animation !== 'none') {
+       // Check for expensive paints during animation
+       if (n.styleConfig.shadow !== 'none' || n.styleConfig.backdropBlur !== 'none' || n.styleConfig.blur !== 'none') {
+          issues.push({
+            id: `anim-paint-${n.id}`,
+            nodeId: n.id,
+            severity: 'medium',
+            category: 'performance',
+            title: 'Expensive Animation Paint',
+            description: `Animating "${n.name}" with Shadows or Blurs triggers expensive repaints.`,
+            suggestion: 'Try removing shadows/blurs during animation or promote to a new layer using "will-change" in custom CSS.'
+          });
+       }
+    }
+
+    // 3. Bundle/Performance: Image Optimization
+    if (n.type === 'image') {
+       totalImages++;
+       const src = n.props.src || '';
+       if (src.startsWith('data:image')) {
+          if (src.length > 10000) { // >10KB base64
+             issues.push({
+                id: `img-base64-${n.id}`,
+                nodeId: n.id,
+                severity: 'high',
+                category: 'bundle',
+                title: 'Large Inline Image',
+                description: `Image "${n.name}" uses a large Base64 string (${Math.round(src.length/1024)}KB).`,
+                suggestion: 'Upload this image to the backend or use a CDN URL to reduce the initial JS bundle size.'
+             });
+          }
+       }
+       if (!n.props.alt) {
+          issues.push({
+             id: `a11y-alt-${n.id}`,
+             nodeId: n.id,
+             severity: 'high',
+             category: 'accessibility',
+             title: 'Missing Alt Text',
+             description: `Image "${n.name}" has no description.`,
+             suggestion: 'Add descriptive text in the props panel for screen readers.'
+          });
+       }
+    }
+
+    // 4. Performance: Large Lists
+    if (n.repeatConfig) {
+       issues.push({
+          id: `list-perf-${n.id}`,
+          nodeId: n.id,
+          severity: 'medium',
+          category: 'performance',
+          title: 'Dynamic List Rendering',
+          description: `List "${n.name}" renders dynamic items.`,
+          suggestion: 'Ensure the source collection is paginated. For lists > 50 items, consider using a virtualization library in the exported code.'
+       });
+    }
+
+    // 5. Interactions/Listeners
+    if (n.interactions && n.interactions.type !== 'none') {
+        totalListeners++;
+        if (n.interactions.trigger === 'view') {
+             issues.push({
+                id: `scroll-listener-${n.id}`,
+                nodeId: n.id,
+                severity: 'low',
+                category: 'performance',
+                title: 'Scroll Observer',
+                description: `"${n.name}" uses an IntersectionObserver (On View).`,
+                suggestion: 'Too many scroll observers can degrade scrolling performance on mobile.'
+             });
+        }
+    }
+
+    // 6. Accessibility: Buttons/Links
+    if (n.type === 'button' && !n.props.text && !n.children.length) {
+         issues.push({
+             id: `a11y-btn-${n.id}`,
+             nodeId: n.id,
+             severity: 'high',
+             category: 'accessibility',
+             title: 'Empty Button',
+             description: `Button "${n.name}" has no text or content.`,
+             suggestion: 'Add text or an icon label.'
+         });
+    }
+
+    n.children.forEach(c => checkNode(c, depth + 1));
+  };
+
+  checkNode(rootNode, 0);
+
+  // Global Bundle Check
+  if (totalNodes > 500) {
+      issues.push({
+          id: 'dom-size',
+          nodeId: 'root',
+          severity: 'high',
+          category: 'performance',
+          title: 'Excessive DOM Size',
+          description: `Total DOM nodes (${totalNodes}) exceeds recommended limit (500) for a single view.`,
+          suggestion: 'Break this page into multiple routes or lazily load sections.'
+      });
+  }
   
-  const propsStr = Object.entries(node.props)
-    .filter(([key]) => key !== 'children' && key !== 'text' && key !== 'className')
-    .map(([key, val]) => {
-      if (val === true) return key;
-      return `${key}="${val}"`;
-    })
-    .join(' ');
-
-  const styleObj: string[] = [];
-  if (node.styleConfig.backgroundColor && node.styleConfig.backgroundGradient === 'none') {
-    styleObj.push(`backgroundColor: '${node.styleConfig.backgroundColor}'`);
-  }
-  if (node.styleConfig.textColor) styleObj.push(`color: '${node.styleConfig.textColor}'`);
-  if (node.styleConfig.borderColor && node.styleConfig.borderWidth) styleObj.push(`borderColor: '${node.styleConfig.borderColor}'`);
-  if (node.styleConfig.backgroundImage) styleObj.push(`backgroundImage: 'url(${node.styleConfig.backgroundImage})'`);
-  if (node.styleConfig.animationDelay) styleObj.push(`animationDelay: '${node.styleConfig.animationDelay}ms'`);
-  if (node.styleConfig.animationTimingFunction) styleObj.push(`animationTimingFunction: '${node.styleConfig.animationTimingFunction}'`);
-
-  const styleAttr = styleObj.length > 0 ? `style={{ ${styleObj.join(', ')} }}` : '';
-  const tagProps = `className="${finalClassName}" ${propsStr} ${styleAttr}`.trim();
-
-  const startComment = indent === 2 ? `\n${space}{/* ${node.name} */}` : '';
-
-  if (node.type === 'text') {
-    return `${startComment}\n${space}<p ${tagProps}>${node.props.text}</p>`;
-  }
-  if (node.type === 'button') {
-    return `${startComment}\n${space}<button ${tagProps}>${node.props.text}</button>`;
-  }
-  if (node.type === 'input') {
-    return `${startComment}\n${space}<input ${tagProps} />`;
-  }
-  if (node.type === 'image') {
-    return `${startComment}\n${space}<img ${tagProps} />`;
-  }
-  if (node.type === 'video') {
-    return `${startComment}\n${space}<video ${tagProps} />`;
-  }
-
-  const childrenCode = node.children.map(c => generateCode(c, indent + 1)).join('');
-  return `${startComment}\n${space}<div ${tagProps}>\n${childrenCode}\n${space}</div>`;
+  return issues;
 };

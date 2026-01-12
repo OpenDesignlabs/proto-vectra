@@ -1,8 +1,22 @@
+
 export type ComponentType = 'container' | 'text' | 'button' | 'image' | 'video' | 'input';
 
 export interface Interaction {
-  type: 'none' | 'alert' | 'link';
+  type: 'none' | 'alert' | 'link' | 'scroll' | 'log' | 'setState' | 'api';
+  trigger: 'click' | 'view' | 'mouseEnter' | 'mouseLeave' | 'submit';
   value: string;
+  threshold?: number; // 0-1
+  apiMethod?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  apiUrl?: string;
+}
+
+export interface Breakpoint {
+  id: string;
+  name: string;
+  width: string; // e.g., '100%', '768px'
+  height?: string; // e.g. '812px'
+  type: 'desktop' | 'mobile' | 'tablet' | 'foldable' | 'ultrawide' | 'custom';
+  icon: string;
 }
 
 // --- CMS & Data Integration Types ---
@@ -142,19 +156,28 @@ export interface ComponentData {
   id: string;
   name: string; // User-defined name
   type: ComponentType;
+  tagName?: string; // HTML tag name override (e.g., 'section', 'form', 'article')
   props: Record<string, any>;
   customClassName?: string; // Raw Tailwind classes
   
   // Responsive Styles
   styleConfig: StyleConfig; // Base/Desktop
+  
+  // Legacy responsive props (kept for compatibility)
   mobileStyleConfig?: StyleConfig;
   tabletStyleConfig?: StyleConfig;
   
+  // New Generic Responsive Map
+  breakpoints?: Record<string, StyleConfig>; // key = breakpoint id
+
   // Interaction States
   hoverStyleConfig?: StyleConfig; 
   focusStyleConfig?: StyleConfig;
   activeStyleConfig?: StyleConfig;
   
+  // Custom States
+  customStates?: Record<string, StyleConfig>; // key = state name (e.g., 'toggled')
+
   children: ComponentData[];
   parentId: string | null;
   interactions?: Interaction;
@@ -166,4 +189,14 @@ export interface ComponentData {
 
 export interface DragItem {
   type: string; 
+}
+
+export interface AuditIssue {
+  id: string;
+  nodeId: string;
+  severity: 'high' | 'medium' | 'low';
+  category: 'performance' | 'bundle' | 'accessibility' | 'structure';
+  title: string;
+  description: string;
+  suggestion?: string;
 }
